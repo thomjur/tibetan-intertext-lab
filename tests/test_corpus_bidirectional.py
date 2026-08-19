@@ -36,6 +36,7 @@ class BidirectionalCorpusPairwiseTests(unittest.TestCase):
                     label_b="Txt-18",
                     model_id="fake/model",
                     device="cpu",
+                    load_in_4bit=True,
                     top_k=2,
                     generate_reports=True,
                     report_heatmap_size=4,
@@ -64,8 +65,10 @@ class BidirectionalCorpusPairwiseTests(unittest.TestCase):
             self.assertEqual(forward_manifest["dir_b"], str(dir_b))
             self.assertEqual(reverse_manifest["dir_a"], str(dir_b))
             self.assertEqual(reverse_manifest["dir_b"], str(dir_a))
-
             self.assertEqual(len(FakeSDK.instances), 2)
+            self.assertTrue(FakeSDK.instances[0].kwargs["load_in_4bit"])
+            self.assertTrue(FakeSDK.instances[1].kwargs["load_in_4bit"])
+
             self.assertEqual([is_query for _, is_query in FakeSDK.instances[0].embed_calls], [True, False])
             self.assertEqual([is_query for _, is_query in FakeSDK.instances[1].embed_calls], [True, False])
 

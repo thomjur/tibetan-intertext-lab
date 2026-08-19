@@ -11,7 +11,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from scripts import run_bidirectional_corpus_pairwise, run_corpus_pairwise_similarity
+from scripts import run_bidirectional_corpus_pairwise, run_corpus_pairwise_similarity, run_pairwise_text_similarity
 from tibetan_pipeline.cli import run
 from tibetan_pipeline.embeddings import EmbeddingResult
 from tibetan_pipeline.pipeline import PipelineArtifacts
@@ -30,6 +30,36 @@ class FakeSegmenter(BaseSegmenter):
 
 
 class CLITests(unittest.TestCase):
+    def test_pairwise_cli_accepts_4bit_and_rejects_combined_quantization_flags(self) -> None:
+        parser = run_pairwise_text_similarity.build_parser()
+        args = parser.parse_args(
+            [
+                "--text-a",
+                "a.txt",
+                "--text-b",
+                "b.txt",
+                "--output-dir",
+                "out",
+                "--load-in-4bit",
+            ]
+        )
+
+        self.assertTrue(args.load_in_4bit)
+        self.assertFalse(args.load_in_8bit)
+        with self.assertRaises(SystemExit):
+            parser.parse_args(
+                [
+                    "--text-a",
+                    "a.txt",
+                    "--text-b",
+                    "b.txt",
+                    "--output-dir",
+                    "out",
+                    "--load-in-8bit",
+                    "--load-in-4bit",
+                ]
+            )
+
     def test_segmentation_only_writes_review_csv(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             input_path = Path(temp_dir) / "input.csv"

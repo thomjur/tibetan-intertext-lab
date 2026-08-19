@@ -138,6 +138,34 @@ class EmbeddingDeviceTests(unittest.TestCase):
         )
         mock_model_cls.from_pretrained.return_value.to.assert_not_called()
 
+    def test_4bit_loading_uses_quantization_config_without_to_device(self) -> None:
+        with patch("tibetan_pipeline.embeddings.AutoTokenizer") as mock_tokenizer_cls:
+            with patch("tibetan_pipeline.embeddings.AutoModelForCausalLM") as mock_model_cls:
+                with patch("tibetan_pipeline.embeddings.BitsAndBytesConfig") as mock_bnb_cls:
+                    mock_tokenizer = mock_tokenizer_cls.from_pretrained.return_value
+                    mock_tokenizer.pad_token = "<pad>"
+                    mock_tokenizer.eos_token = "</s>"
+                    embedder = TextEmbedder(
+                        model_id=DEFAULT_MODEL_ID,
+                        device="cpu",
+                        load_in_4bit=True,
+                    )
+                    embedder._ensure_backend()
+
+        mock_bnb_cls.assert_called_once_with(load_in_4bit=True)
+        mock_model_cls.from_pretrained.assert_called_once_with(
+            DEFAULT_MODEL_ID,
+            trust_remote_code=True,
+            quantization_config=mock_bnb_cls.return_value,
+            device_map="auto",
+            low_cpu_mem_usage=True,
+        )
+        mock_model_cls.from_pretrained.return_value.to.assert_not_called()
+
+    def test_8bit_and_4bit_loading_are_mutually_exclusive(self) -> None:
+        with self.assertRaises(ValueError):
+            TextEmbedder(load_in_8bit=True, load_in_4bit=True)
+
     def test_input_device_uses_first_non_cpu_device_from_model_map(self) -> None:
         embedder = TextEmbedder(model_id=DEFAULT_MODEL_ID, device="cpu")
         model = type("FakeModel", (), {})()

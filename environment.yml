@@ -12,6 +12,8 @@ dependencies:
   - seaborn
   - plotly
   - huggingface_hub
+  - accelerate
+  - bitsandbytes>=0.50.1
   - transformers>=4.30.0
   - sentence-transformers>=2.2.0
   - pytorch>=2.0.0

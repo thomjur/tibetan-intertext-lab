@@ -104,6 +104,7 @@ class PairwiseTests(unittest.TestCase):
                         output_dir=temp_dir,
                         model_id="fake/model",
                         device="cpu",
+                        load_in_4bit=True,
                         top_k=1,
                     )
 
@@ -116,6 +117,7 @@ class PairwiseTests(unittest.TestCase):
                 torch_dtype=None,
                 device_map=None,
                 load_in_8bit=False,
+                load_in_4bit=True,
                 low_cpu_mem_usage=None,
             )
 

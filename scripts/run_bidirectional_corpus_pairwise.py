@@ -34,7 +34,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "mps", "cuda"])
     parser.add_argument("--torch-dtype", choices=["auto", "float16", "bfloat16", "float32"])
     parser.add_argument("--device-map", help="Transformers device_map value, for example 'auto'.")
-    parser.add_argument("--load-in-8bit", action="store_true")
+    quantization_group = parser.add_mutually_exclusive_group()
+    quantization_group.add_argument(
+        "--load-in-8bit",
+        action="store_true",
+        help="Load the model with 8-bit bitsandbytes quantization.",
+    )
+    quantization_group.add_argument(
+        "--load-in-4bit",
+        action="store_true",
+        help="Load the model with 4-bit bitsandbytes quantization.",
+    )
     parser.add_argument("--low-cpu-mem-usage", action="store_true")
     parser.add_argument("--embedding-progress", default="off", choices=["off", "batch", "sentence"])
     parser.add_argument("--top-k", type=int, default=100)
@@ -86,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
         torch_dtype=args.torch_dtype,
         device_map=args.device_map,
         load_in_8bit=args.load_in_8bit,
+        load_in_4bit=args.load_in_4bit,
         low_cpu_mem_usage=args.low_cpu_mem_usage or None,
         top_k=args.top_k,
         glob_pattern=args.glob_pattern,

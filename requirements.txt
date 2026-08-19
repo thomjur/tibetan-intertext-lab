@@ -4,6 +4,8 @@ pandas
 botok
 pyewts
 huggingface_hub
+accelerate
+bitsandbytes>=0.50.1
 ipykernel
 sentence-transformers>=2.2.0
 torch>=2.0.0

@@ -38,8 +38,11 @@ class TextEmbedder:
         torch_dtype: TorchDTypeName | None = None,
         device_map: str | dict[str, int | str] | None = None,
         load_in_8bit: bool = False,
+        load_in_4bit: bool = False,
         low_cpu_mem_usage: bool | None = None,
     ) -> None:
+        if load_in_8bit and load_in_4bit:
+            raise ValueError("load_in_8bit and load_in_4bit are mutually exclusive.")
         self.model_id = model_id
         self.normalize_embeddings = normalize_embeddings
         self.batch_size = batch_size
@@ -50,6 +53,7 @@ class TextEmbedder:
         self.torch_dtype = torch_dtype
         self.device_map = device_map
         self.load_in_8bit = load_in_8bit
+        self.load_in_4bit = load_in_4bit
         self.low_cpu_mem_usage = low_cpu_mem_usage
         self._backend = None
         self._tokenizer = None
@@ -192,8 +196,9 @@ class TextEmbedder:
             kwargs["device_map"] = self.device_map
         elif self._should_direct_load_on_cuda():
             kwargs["device_map"] = {"": self._device}
-        if self.load_in_8bit:
-            kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+        if self.load_in_8bit or self.load_in_4bit:
+            quantization_kwargs = {"load_in_8bit": True} if self.load_in_8bit else {"load_in_4bit": True}
+            kwargs["quantization_config"] = BitsAndBytesConfig(**quantization_kwargs)
             kwargs.setdefault("device_map", "auto")
         if self._should_use_low_cpu_mem_usage(kwargs):
             kwargs["low_cpu_mem_usage"] = True
@@ -205,15 +210,15 @@ class TextEmbedder:
         self._model.to(self._device)
 
     def _uses_loader_device_placement(self) -> bool:
-        return self.device_map is not None or self.load_in_8bit or self._should_direct_load_on_cuda()
+        return self.device_map is not None or self.load_in_8bit or self.load_in_4bit or self._should_direct_load_on_cuda()
 
     def _should_direct_load_on_cuda(self) -> bool:
-        return self._device == "cuda" and self.torch_dtype is not None and not self.load_in_8bit
+        return self._device == "cuda" and self.torch_dtype is not None and not (self.load_in_8bit or self.load_in_4bit)
 
     def _should_use_low_cpu_mem_usage(self, load_kwargs: dict[str, Any]) -> bool:
         if self.low_cpu_mem_usage is not None:
             return self.low_cpu_mem_usage
-        return "device_map" in load_kwargs or self.load_in_8bit
+        return "device_map" in load_kwargs or self.load_in_8bit or self.load_in_4bit
 
     def _input_device(self) -> str:
         if self._model is None:

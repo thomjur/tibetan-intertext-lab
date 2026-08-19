@@ -99,6 +99,7 @@ class TibetanResearchSDK:
         torch_dtype: TorchDTypeName | None = None,
         device_map: str | dict[str, int | str] | None = None,
         load_in_8bit: bool = False,
+        load_in_4bit: bool = False,
         low_cpu_mem_usage: bool | None = None,
     ) -> None:
         self.engine = engine
@@ -112,6 +113,7 @@ class TibetanResearchSDK:
         self.torch_dtype = torch_dtype
         self.device_map = device_map
         self.load_in_8bit = load_in_8bit
+        self.load_in_4bit = load_in_4bit
         self.low_cpu_mem_usage = low_cpu_mem_usage
         self._segmenter = resolve_segmenter(
             engine=engine,
@@ -146,6 +148,7 @@ class TibetanResearchSDK:
         torch_dtype: TorchDTypeName | None = None,
         device_map: str | dict[str, int | str] | None = None,
         load_in_8bit: bool | None = None,
+        load_in_4bit: bool | None = None,
         low_cpu_mem_usage: bool | None = None,
         is_query: bool = False,
     ) -> EmbeddingView:
@@ -156,6 +159,7 @@ class TibetanResearchSDK:
         torch_dtype = torch_dtype if torch_dtype is not None else self.torch_dtype
         device_map = device_map if device_map is not None else self.device_map
         load_in_8bit = load_in_8bit if load_in_8bit is not None else self.load_in_8bit
+        load_in_4bit = load_in_4bit if load_in_4bit is not None else self.load_in_4bit
         low_cpu_mem_usage = low_cpu_mem_usage if low_cpu_mem_usage is not None else self.low_cpu_mem_usage
         embedder = self._get_embedder(
             model_id=model_id,
@@ -165,6 +169,7 @@ class TibetanResearchSDK:
             torch_dtype=torch_dtype,
             device_map=device_map,
             load_in_8bit=load_in_8bit,
+            load_in_4bit=load_in_4bit,
             low_cpu_mem_usage=low_cpu_mem_usage,
         )
         encoded = embedder.encode_queries(sentences) if is_query else embedder.encode_corpus(sentences)
@@ -188,6 +193,7 @@ class TibetanResearchSDK:
         torch_dtype: TorchDTypeName | None = None,
         device_map: str | dict[str, int | str] | None = None,
         load_in_8bit: bool | None = None,
+        load_in_4bit: bool | None = None,
         low_cpu_mem_usage: bool | None = None,
     ) -> PairwiseView:
         sentences_a = self._segment_text_to_sentences(text_a)
@@ -203,6 +209,7 @@ class TibetanResearchSDK:
             torch_dtype=torch_dtype,
             device_map=device_map,
             load_in_8bit=load_in_8bit,
+            load_in_4bit=load_in_4bit,
             low_cpu_mem_usage=low_cpu_mem_usage,
         )
 
@@ -219,6 +226,7 @@ class TibetanResearchSDK:
         torch_dtype: TorchDTypeName | None = None,
         device_map: str | dict[str, int | str] | None = None,
         load_in_8bit: bool | None = None,
+        load_in_4bit: bool | None = None,
         low_cpu_mem_usage: bool | None = None,
     ) -> PairwiseView:
         embedding_a = self.embed_sentences(
@@ -230,6 +238,7 @@ class TibetanResearchSDK:
             torch_dtype=torch_dtype,
             device_map=device_map,
             load_in_8bit=load_in_8bit,
+            load_in_4bit=load_in_4bit,
             low_cpu_mem_usage=low_cpu_mem_usage,
             is_query=True,
         )
@@ -242,6 +251,7 @@ class TibetanResearchSDK:
             torch_dtype=torch_dtype,
             device_map=device_map,
             load_in_8bit=load_in_8bit,
+            load_in_4bit=load_in_4bit,
             low_cpu_mem_usage=low_cpu_mem_usage,
             is_query=False,
         )
@@ -315,6 +325,7 @@ class TibetanResearchSDK:
             "torch_dtype": self.torch_dtype,
             "device_map": self.device_map,
             "load_in_8bit": self.load_in_8bit,
+            "load_in_4bit": self.load_in_4bit,
             "low_cpu_mem_usage": self.low_cpu_mem_usage,
         }
         defaults.update(kwargs)
@@ -334,6 +345,7 @@ class TibetanResearchSDK:
         torch_dtype: TorchDTypeName | None,
         device_map: str | dict[str, int | str] | None,
         load_in_8bit: bool,
+        load_in_4bit: bool,
         low_cpu_mem_usage: bool | None,
     ) -> TextEmbedder:
         cache_key = (
@@ -342,6 +354,7 @@ class TibetanResearchSDK:
             torch_dtype,
             repr(device_map),
             load_in_8bit,
+            load_in_4bit,
             low_cpu_mem_usage,
         )
         embedder = self._embedders.get(cache_key)
@@ -355,6 +368,7 @@ class TibetanResearchSDK:
                 torch_dtype=torch_dtype,
                 device_map=device_map,
                 load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit,
                 low_cpu_mem_usage=low_cpu_mem_usage,
             )
             self._embedders[cache_key] = embedder

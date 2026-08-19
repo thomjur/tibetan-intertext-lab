@@ -114,6 +114,7 @@ def run_pairwise_similarity(
     torch_dtype: TorchDTypeName | None = None,
     device_map: str | dict[str, int | str] | None = None,
     load_in_8bit: bool = False,
+    load_in_4bit: bool = False,
     low_cpu_mem_usage: bool | None = None,
     top_k: int = 100,
     save_similarity_npy: bool = False,
@@ -143,6 +144,7 @@ def run_pairwise_similarity(
         torch_dtype=torch_dtype,
         device_map=device_map,
         load_in_8bit=load_in_8bit,
+        load_in_4bit=load_in_4bit,
         low_cpu_mem_usage=low_cpu_mem_usage,
     )
     embeddings_a = embedder.encode_queries(sentences_a).embeddings
@@ -176,6 +178,8 @@ def run_pairwise_similarity(
         "model_id": model_id,
         "device": device,
         "batch_size": batch_size,
+        "load_in_8bit": load_in_8bit,
+        "load_in_4bit": load_in_4bit,
         "top_k_requested": top_k,
         "top_k_returned": len(matches),
         "embedding_progress": embedding_progress,

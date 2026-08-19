@@ -47,7 +47,7 @@ class SDKTests(unittest.TestCase):
         with patch("tibetan_pipeline.sdk.TextEmbedder") as mock_embedder_cls:
             mock_embedder = mock_embedder_cls.return_value
             mock_embedder.encode_corpus.return_value = EmbeddingResult("fake/model", np.ones((2, 3), dtype=np.float32))
-            view = sdk.embed_sentences(["a", "b"])
+            view = sdk.embed_sentences(["a", "b"], load_in_4bit=True)
 
         mock_embedder_cls.assert_called_once_with(
             model_id="fake/model",
@@ -58,6 +58,7 @@ class SDKTests(unittest.TestCase):
             torch_dtype=None,
             device_map=None,
             load_in_8bit=False,
+            load_in_4bit=True,
             low_cpu_mem_usage=None,
         )
 
@@ -85,6 +86,7 @@ class SDKTests(unittest.TestCase):
             torch_dtype=None,
             device_map=None,
             load_in_8bit=False,
+            load_in_4bit=False,
             low_cpu_mem_usage=None,
         )
 
@@ -101,6 +103,20 @@ class SDKTests(unittest.TestCase):
         mock_embedder_cls.assert_called_once()
         self.assertEqual(mock_embedder.batch_size, 4)
         self.assertEqual(mock_embedder.embedding_progress, "batch")
+
+    def test_4bit_setting_is_part_of_embedder_cache_key(self) -> None:
+        with patch("tibetan_pipeline.sdk.resolve_segmenter", return_value=FakeSegmenter()):
+            sdk = TibetanResearchSDK(device="cpu", model_id="fake/model")
+        with patch("tibetan_pipeline.sdk.TextEmbedder") as mock_embedder_cls:
+            mock_embedder = mock_embedder_cls.return_value
+            mock_embedder.encode_corpus.return_value = EmbeddingResult("fake/model", np.ones((1, 3), dtype=np.float32))
+
+            sdk.embed_sentences(["a"], load_in_4bit=False)
+            sdk.embed_sentences(["b"], load_in_4bit=True)
+
+        self.assertEqual(mock_embedder_cls.call_count, 2)
+        self.assertFalse(mock_embedder_cls.call_args_list[0].kwargs["load_in_4bit"])
+        self.assertTrue(mock_embedder_cls.call_args_list[1].kwargs["load_in_4bit"])
 
     def test_pairwise_from_sentences_returns_ranked_dataframe(self) -> None:
         with patch("tibetan_pipeline.sdk.resolve_segmenter", return_value=FakeSegmenter()):

@@ -258,7 +258,7 @@ view = sdk.pairwise_from_embedding_views(emb_q, emb_c, top_k=20)
 ```
 
 Useful SDK behaviors:
-- SDK embedder instances are cached by heavyweight load settings (`model_id`, `device`, `torch_dtype`, `device_map`, `load_in_8bit`) so repeated calls in the same Python process reuse the loaded model.
+- SDK embedder instances are cached by heavyweight load settings (`model_id`, `device`, `torch_dtype`, `device_map`, `load_in_8bit`, `load_in_4bit`) so repeated calls in the same Python process reuse the loaded model.
 - `sdk.pairwise(...)` still embeds the input texts again; use `sdk.pairwise_from_embedding_views(...)` when you already have precomputed embeddings in memory.
 - pairwise SDK views now expose shared aggregate metrics and rich segment records in addition to the raw similarity matrix and top-k rows.
 - The starter notebook at `notebooks/03_sdk_starter_v2.ipynb` demonstrates both flows.
@@ -280,6 +280,11 @@ Model loading controls exposed by `TibetanResearchSDK` and `TextEmbedder`:
 - `torch_dtype`: `auto`, `float16`, `bfloat16`, or `float32`
 - `device_map`: pass-through Transformers device placement
 - `load_in_8bit`: optional 8-bit loading for compatible CUDA environments
+- `load_in_4bit`: optional 4-bit loading for compatible CUDA environments
+
+The 8-bit and 4-bit options are mutually exclusive and require a working
+`bitsandbytes` installation. For example, a pairwise run can use 4-bit loading
+with `--device cuda --load-in-4bit`.
 
 Performance notes:
 - The first embedding call in a fresh Python process still pays model load/materialization cost.

@@ -116,11 +116,14 @@ class CorpusPairwiseTests(unittest.TestCase):
                     output_dir=out,
                     model_id="fake/model",
                     device="cpu",
+                    load_in_4bit=True,
                     top_k=2,
                 )
 
             self.assertEqual(set(artifacts), {"documents_a_csv", "documents_b_csv", "summary_csv", "manifest_json"})
             sdk = FakeSDK.instances[0]
+            self.assertTrue(sdk.kwargs["load_in_4bit"])
+            self.assertFalse(sdk.kwargs["load_in_8bit"])
             self.assertEqual(len(sdk.embed_calls), 4)
             self.assertEqual([is_query for _, is_query in sdk.embed_calls], [True, True, False, False])
 
@@ -128,6 +131,8 @@ class CorpusPairwiseTests(unittest.TestCase):
             self.assertEqual(manifest["doc_count_a"], 2)
             self.assertEqual(manifest["doc_count_b"], 2)
             self.assertEqual(manifest["pair_count"], 4)
+            self.assertTrue(manifest["load_in_4bit"])
+            self.assertFalse(manifest["load_in_8bit"])
             self.assertIsNone(manifest["limit_a"])
             self.assertIsNone(manifest["limit_b"])
             self.assertIn("generated views", manifest["top_k_note"])
