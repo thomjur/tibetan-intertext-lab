@@ -140,6 +140,7 @@ class CorpusPairwiseTests(unittest.TestCase):
             with Path(artifacts["summary_csv"]).open(encoding="utf-8", newline="") as handle:
                 summary_rows = list(csv.DictReader(handle))
             self.assertEqual(len(summary_rows), 4)
+            self.assertIn("mean_above_p95", summary_rows[0])
             self.assertTrue(all(row["similarity_npy"] for row in summary_rows))
             self.assertTrue(all(Path(row["topk_csv"]).exists() for row in summary_rows))
 
@@ -157,6 +158,7 @@ class CorpusPairwiseTests(unittest.TestCase):
             pair_dir = out / "pairs" / "A001__B002"
             pair_manifest = json.loads((pair_dir / "pair_manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(pair_manifest["top_k_requested"], 2)
+            self.assertIn("mean_above_p95", pair_manifest)
             self.assertIn("regenerate any k", pair_manifest["top_k_note"])
 
             regenerated = regenerate_topk_for_pair_dir(pair_dir, k=3)

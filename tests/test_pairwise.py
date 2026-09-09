@@ -89,6 +89,7 @@ class PairwiseTests(unittest.TestCase):
             self.assertEqual(manifest["top_k_requested"], 4)
             self.assertEqual(manifest["top_k_returned"], 4)
             self.assertIn("max_score", manifest)
+            self.assertIn("mean_above_p95", manifest)
             self.assertIn("mean_best_a_to_b", manifest)
 
     def test_run_pairwise_similarity_passes_device_to_embedder(self) -> None:

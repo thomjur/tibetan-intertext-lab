@@ -28,6 +28,7 @@ class PairwiseMetrics:
     mean_score: float
     median_score: float
     p95_score: float
+    mean_above_p95: float
     mean_best_a_to_b: float
     mean_best_b_to_a: float
 
@@ -194,16 +195,20 @@ def matrix_metrics(matrix: np.ndarray) -> PairwiseMetrics:
             mean_score=0.0,
             median_score=0.0,
             p95_score=0.0,
+            mean_above_p95=0.0,
             mean_best_a_to_b=0.0,
             mean_best_b_to_a=0.0,
         )
 
     flat = matrix.astype(np.float32, copy=False).ravel()
+    p95_score = float(np.percentile(flat, 95))
+    above_p95 = flat[flat > p95_score]
     return PairwiseMetrics(
         max_score=float(np.max(flat)),
         mean_score=float(np.mean(flat)),
         median_score=float(np.median(flat)),
-        p95_score=float(np.percentile(flat, 95)),
+        p95_score=p95_score,
+        mean_above_p95=float(np.mean(above_p95)) if above_p95.size else 0.0,
         mean_best_a_to_b=float(np.mean(np.max(matrix, axis=1))) if matrix.shape[0] else 0.0,
         mean_best_b_to_a=float(np.mean(np.max(matrix, axis=0))) if matrix.shape[1] else 0.0,
     )

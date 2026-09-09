@@ -6,7 +6,13 @@ import unittest
 
 import numpy as np
 
-from tibetan_pipeline.pairwise_run import PairwiseMetrics, make_segments, run_pairwise_similarity_core, top_k_match_records
+from tibetan_pipeline.pairwise_run import (
+    PairwiseMetrics,
+    make_segments,
+    matrix_metrics,
+    run_pairwise_similarity_core,
+    top_k_match_records,
+)
 
 
 class PairwiseRunCoreTests(unittest.TestCase):
@@ -31,6 +37,7 @@ class PairwiseRunCoreTests(unittest.TestCase):
         self.assertEqual(result.matches[0].segment_b.index, 0)
         self.assertIsInstance(result.metrics, PairwiseMetrics)
         self.assertAlmostEqual(result.metrics.max_score, 1.0, places=6)
+        self.assertAlmostEqual(result.metrics.mean_above_p95, 1.0, places=6)
 
     def test_core_allows_empty_input(self) -> None:
         result = run_pairwise_similarity_core(
@@ -44,6 +51,16 @@ class PairwiseRunCoreTests(unittest.TestCase):
         self.assertEqual(result.similarity_matrix.shape, (0, 0))
         self.assertEqual(result.matches, [])
         self.assertEqual(result.metrics.mean_score, 0.0)
+        self.assertEqual(result.metrics.mean_above_p95, 0.0)
+
+    def test_matrix_metrics_mean_above_p95_uses_strict_upper_tail(self) -> None:
+        metrics = matrix_metrics(np.array([[0.0, 1.0], [2.0, 3.0]], dtype=np.float32))
+
+        self.assertAlmostEqual(metrics.p95_score, 2.85, places=6)
+        self.assertEqual(metrics.mean_above_p95, 3.0)
+
+        constant_metrics = matrix_metrics(np.ones((2, 2), dtype=np.float32))
+        self.assertEqual(constant_metrics.mean_above_p95, 0.0)
 
     def test_top_k_modes_can_require_unique_or_diverse_sides(self) -> None:
         matrix = np.array(

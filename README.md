@@ -80,7 +80,7 @@ Outputs:
 - optional `similarity_matrix.npy` (`--save-similarity-npy`)
 
 Manifest notes:
-- includes aggregate matrix metrics such as `max_score`, `p95_score`, `mean_best_a_to_b`, and `mean_best_b_to_a`
+- includes aggregate matrix metrics such as `max_score`, `p95_score`, `mean_above_p95`, `mean_best_a_to_b`, and `mean_best_b_to_a`
 - these metrics now come from the canonical pairwise core used by the script, SDK, and corpus workflow
 
 ### 3) Corpus-level pairwise workflow

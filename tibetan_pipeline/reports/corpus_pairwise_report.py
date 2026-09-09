@@ -103,6 +103,7 @@ def build_report_data(run_dir: Path, heatmap_size: int, max_topk: int) -> dict[s
                 "mean_score": round_float(row["mean_score"]),
                 "median_score": round_float(row["median_score"]),
                 "p95_score": round_float(row["p95_score"]),
+                "mean_above_p95": round_float(row.get("mean_above_p95", "0.0")),
                 "mean_best_a_to_b": round_float(row["mean_best_a_to_b"]),
                 "mean_best_b_to_a": round_float(row["mean_best_b_to_a"]),
                 "top_k_returned": int(row["top_k_returned"]),
@@ -420,10 +421,11 @@ def build_html() -> str:
             <option value="mean_best_a_to_b">Mean best A to B</option>
             <option value="mean_best_b_to_a">Mean best B to A</option>
             <option value="p95_score">P95 score</option>
+            <option value="mean_above_p95">Mean above P95</option>
             <option value="mean_score">Mean score</option>
             <option value="score_count">Matrix size</option>
           </select>
-          <div class="help-popover" id="helpSort">Max is the strongest single sentence hit. P95 is the broad upper tail. Mean best A to B asks how well each SMDG sentence finds a match in Txt-18; B to A asks the reverse. Matrix size is sentence count A times sentence count B.</div>
+          <div class="help-popover" id="helpSort">Max is the strongest single sentence hit. P95 is the broad upper tail. Mean above P95 averages only cells strictly above that percentile. Mean best A to B asks how well each SMDG sentence finds a match in Txt-18; B to A asks the reverse. Matrix size is sentence count A times sentence count B.</div>
         </label>
         <label><span class="label-row"><span>Top K shown for selected pair</span><button class="info-btn" type="button" data-help="helpTopK" aria-label="Explain top K">i</button></span>
           <input id="topK" type="number" min="1" max="100" value="20">
@@ -444,6 +446,7 @@ def build_html() -> str:
           <button data-overview="mean_best_a_to_b">Overview: best A→B</button>
           <button data-overview="mean_best_b_to_a">Overview: best B→A</button>
           <button data-overview="p95_score">Overview: p95</button>
+          <button data-overview="mean_above_p95">Overview: mean above p95</button>
         </div>
       </div>
       <h2>Corpus Heatmap <button class="info-btn" type="button" data-help="helpOverviewHeatmap" aria-label="Explain corpus heatmap">i</button></h2>
@@ -534,6 +537,10 @@ def build_html() -> str:
       p95_score: {
         title: 'Overview: p95',
         body: 'Each cell is colored by the 95th percentile of all sentence-pair scores in the matrix. This ignores most ordinary cells and asks whether the upper tail is broadly elevated. It is usually better than max for finding sustained document-pair similarity.'
+      },
+      mean_above_p95: {
+        title: 'Overview: mean above p95',
+        body: 'Each cell is colored by the mean of scores strictly above the matrix 95th percentile. It focuses on the strongest tail while averaging away a single isolated maximum. A value of zero means no cell was strictly above the percentile.'
       }
     };
 
@@ -691,8 +698,8 @@ def build_html() -> str:
           <div><h3>${p.doc_b_id}</h3><div>${escapeHtml(p.doc_b_relative_path)}</div><p class="note">${fmt.format(p.sentence_count_b)} sentences</p></div>
         </div>
         <table>
-          <tr><th>Max</th><th>P95</th><th>Mean</th><th>Mean best A→B</th><th>Mean best B→A</th><th>Matrix cells</th></tr>
-          <tr><td>${score(p.max_score)}</td><td>${score(p.p95_score)}</td><td>${score(p.mean_score)}</td><td>${score(p.mean_best_a_to_b)}</td><td>${score(p.mean_best_b_to_a)}</td><td>${fmt.format(p.score_count)}</td></tr>
+          <tr><th>Max</th><th>P95</th><th>Mean above P95</th><th>Mean</th><th>Mean best A→B</th><th>Mean best B→A</th><th>Matrix cells</th></tr>
+          <tr><td>${score(p.max_score)}</td><td>${score(p.p95_score)}</td><td>${score(p.mean_above_p95)}</td><td>${score(p.mean_score)}</td><td>${score(p.mean_best_a_to_b)}</td><td>${score(p.mean_best_b_to_a)}</td><td>${fmt.format(p.score_count)}</td></tr>
         </table>`;
     }
 
@@ -708,6 +715,7 @@ def build_html() -> str:
         <table>
           <tr><th>Max score</th><td>${score(p.max_score)}<br><span class="note">strongest single sentence-pair hit</span></td></tr>
           <tr><th>P95 score</th><td>${score(p.p95_score)}<br><span class="note">upper-tail breadth across the matrix</span></td></tr>
+          <tr><th>Mean above P95</th><td>${score(p.mean_above_p95)}<br><span class="note">mean of cells strictly above P95</span></td></tr>
           <tr><th>Mean best A to B</th><td>${score(p.mean_best_a_to_b)}</td></tr>
           <tr><th>Mean best B to A</th><td>${score(p.mean_best_b_to_a)}</td></tr>
           <tr><th>Coverage pattern</th><td>${escapeHtml(direction)} (${asymmetry >= 0 ? '+' : ''}${asymmetry.toFixed(3)})</td></tr>

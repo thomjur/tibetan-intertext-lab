@@ -190,6 +190,7 @@ def run_pairwise_similarity(
         "mean_score": result.metrics.mean_score,
         "median_score": result.metrics.median_score,
         "p95_score": result.metrics.p95_score,
+        "mean_above_p95": result.metrics.mean_above_p95,
         "mean_best_a_to_b": result.metrics.mean_best_a_to_b,
         "mean_best_b_to_a": result.metrics.mean_best_b_to_a,
         "topk_csv": str(topk_csv),
