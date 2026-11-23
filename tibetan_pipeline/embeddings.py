@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import torch
 from sentence_transformers import SentenceTransformer
 from transformers import AutoModel, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+if TYPE_CHECKING:
+    from .tfidf import TfidfAnalyzer, TfidfEmbedder
+
 DEFAULT_MODEL_ID = "buddhist-nlp/gemma-2-mitra-e"
 DEFAULT_QUERY_INSTRUCTION = "Please find the semantically most similar text in Tibetan."
 TorchDTypeName = Literal["auto", "float16", "bfloat16", "float32"]
+EmbeddingBackend = Literal["gemma", "tfidf"]
 
 
 @dataclass(slots=True)
@@ -25,6 +30,8 @@ class EmbeddingResult:
 
 class TextEmbedder:
     """A flexible text embedder supporting sentence-transformers and fallback pooling."""
+
+    backend = "gemma"
 
     def __init__(
         self,
@@ -87,6 +94,23 @@ class TextEmbedder:
     def encode_corpus(self, texts: list[str]) -> EmbeddingResult:
         """Encode corpus passages (raw text for asymmetric retrieval models)."""
         return self.encode(texts)
+
+    def encode_pair(
+        self,
+        texts_a: list[str],
+        texts_b: list[str],
+    ) -> tuple[EmbeddingResult, EmbeddingResult]:
+        """Encode a query/corpus side pair; neural models encode sides independently."""
+        return self.encode_queries(texts_a), self.encode_corpus(texts_b)
+
+    def config(self) -> dict[str, Any]:
+        """Backend configuration snapshot for run manifests."""
+        return {
+            "backend": self.backend,
+            "model_id": self.model_id,
+            "device": self.device,
+            "batch_size": self.batch_size,
+        }
 
     def _ensure_backend(self) -> None:
         if self._backend is not None:
@@ -232,6 +256,66 @@ class TextEmbedder:
         if self.embedding_progress == "batch" and level == "sentence":
             return
         print(message, flush=True)
+
+
+def create_embedder(
+    backend: EmbeddingBackend = "gemma",
+    *,
+    model_id: str = DEFAULT_MODEL_ID,
+    text_embedder_cls: type[TextEmbedder] | None = None,
+    batch_size: int = 8,
+    device: Literal["auto", "cpu", "mps", "cuda"] = "auto",
+    embedding_progress: Literal["off", "batch", "sentence"] = "off",
+    torch_dtype: TorchDTypeName | None = None,
+    device_map: str | dict[str, int | str] | None = None,
+    load_in_8bit: bool = False,
+    low_cpu_mem_usage: bool | None = None,
+    botok_cache_dir: str | Path | None = ".cache/botok/dialect_packs",
+    tfidf_analyzer: TfidfAnalyzer = "botok",
+    tfidf_ngram_min: int | None = None,
+    tfidf_ngram_max: int | None = None,
+    tfidf_min_df: int | float = 1,
+    tfidf_max_df: int | float = 1.0,
+    tfidf_max_features: int | None = None,
+    tfidf_sublinear_tf: bool = False,
+) -> TextEmbedder | TfidfEmbedder:
+    """Create an embedder for the requested backend.
+
+    `text_embedder_cls` lets callers pass their own module-level `TextEmbedder`
+    reference (useful for tests that patch that name); defaults to the class
+    defined here. TF-IDF ignores the GPU/model-loading kwargs. TF-IDF n-gram
+    bounds left as None fall back to the analyzer default (botok 1-1, char 3-5).
+    """
+    if backend == "tfidf":
+        from .tfidf import TfidfEmbedder
+
+        if tfidf_ngram_min is None and tfidf_ngram_max is None:
+            ngram_range = None
+        else:
+            ngram_range = (tfidf_ngram_min or 1, tfidf_ngram_max or tfidf_ngram_min or 1)
+        return TfidfEmbedder(
+            analyzer=tfidf_analyzer,
+            ngram_range=ngram_range,
+            min_df=tfidf_min_df,
+            max_df=tfidf_max_df,
+            max_features=tfidf_max_features,
+            sublinear_tf=tfidf_sublinear_tf,
+            botok_cache_dir=botok_cache_dir,
+        )
+    if backend != "gemma":
+        raise ValueError(f"Unsupported embedding backend: {backend}")
+    cls = text_embedder_cls or TextEmbedder
+    return cls(
+        model_id=model_id,
+        batch_size=batch_size,
+        normalize_embeddings=True,
+        device=device,
+        embedding_progress=embedding_progress,
+        torch_dtype=torch_dtype,
+        device_map=device_map,
+        load_in_8bit=load_in_8bit,
+        low_cpu_mem_usage=low_cpu_mem_usage,
+    )
 
 
 def _resolve_torch_device(preferred: Literal["auto", "cpu", "mps", "cuda"] = "auto") -> str:

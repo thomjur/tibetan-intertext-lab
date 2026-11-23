@@ -6,6 +6,7 @@ pyewts
 huggingface_hub
 ipykernel
 sentence-transformers>=2.2.0
+scikit-learn
 torch>=2.0.0
 transformers>=4.30.0
 

@@ -10,7 +10,8 @@ from typing import Literal
 
 import numpy as np
 
-from .embeddings import DEFAULT_MODEL_ID, TextEmbedder, TorchDTypeName
+from .embeddings import DEFAULT_MODEL_ID, EmbeddingBackend, TextEmbedder, TorchDTypeName, create_embedder
+from .tfidf import TfidfAnalyzer
 from .normalization import normalize_text
 from .pipeline import resolve_segmenter
 from .pairwise_run import (
@@ -108,6 +109,7 @@ def run_pairwise_similarity(
     botok_cache_dir: str | Path | None = ".cache/botok/dialect_packs",
     min_syllables: int = 4,
     model_id: str = DEFAULT_MODEL_ID,
+    embedding_backend: EmbeddingBackend = "gemma",
     batch_size: int = 8,
     device: str = "auto",
     embedding_progress: Literal["off", "batch", "sentence"] = "off",
@@ -115,6 +117,13 @@ def run_pairwise_similarity(
     device_map: str | dict[str, int | str] | None = None,
     load_in_8bit: bool = False,
     low_cpu_mem_usage: bool | None = None,
+    tfidf_analyzer: TfidfAnalyzer = "botok",
+    tfidf_ngram_min: int | None = None,
+    tfidf_ngram_max: int | None = None,
+    tfidf_min_df: int | float = 1,
+    tfidf_max_df: int | float = 1.0,
+    tfidf_max_features: int | None = None,
+    tfidf_sublinear_tf: bool = False,
     top_k: int = 100,
     save_similarity_npy: bool = False,
 ) -> PairwiseArtifacts:
@@ -134,19 +143,34 @@ def run_pairwise_similarity(
         min_syllables=min_syllables,
     )
 
-    embedder = TextEmbedder(
+    embedder = create_embedder(
+        embedding_backend,
         model_id=model_id,
+        text_embedder_cls=TextEmbedder,
         batch_size=batch_size,
-        normalize_embeddings=True,
         device=device,
         embedding_progress=embedding_progress,
         torch_dtype=torch_dtype,
         device_map=device_map,
         load_in_8bit=load_in_8bit,
         low_cpu_mem_usage=low_cpu_mem_usage,
+        botok_cache_dir=botok_cache_dir,
+        tfidf_analyzer=tfidf_analyzer,
+        tfidf_ngram_min=tfidf_ngram_min,
+        tfidf_ngram_max=tfidf_ngram_max,
+        tfidf_min_df=tfidf_min_df,
+        tfidf_max_df=tfidf_max_df,
+        tfidf_max_features=tfidf_max_features,
+        tfidf_sublinear_tf=tfidf_sublinear_tf,
     )
-    embeddings_a = embedder.encode_queries(sentences_a).embeddings
-    embeddings_b = embedder.encode_corpus(sentences_b).embeddings
+    if embedding_backend == "tfidf":
+        # TF-IDF needs one joint fit over both sides to share a vector space.
+        encoded_a, encoded_b = embedder.encode_pair(sentences_a, sentences_b)
+    else:
+        encoded_a = embedder.encode_queries(sentences_a)
+        encoded_b = embedder.encode_corpus(sentences_b)
+    embeddings_a = encoded_a.embeddings
+    embeddings_b = encoded_b.embeddings
     result = run_pairwise_similarity_core(
         make_segments(sentences_a),
         embeddings_a,
@@ -173,7 +197,11 @@ def run_pairwise_similarity(
     manifest = {
         "engine": engine,
         "source_format": source_format,
-        "model_id": model_id,
+        "model_id": encoded_a.model_id,
+        "embedding_backend": embedding_backend,
+        "embedding_config": (
+            embedder.config() if embedding_backend == "tfidf" else {"backend": "gemma", "model_id": model_id}
+        ),
         "device": device,
         "batch_size": batch_size,
         "top_k_requested": top_k,

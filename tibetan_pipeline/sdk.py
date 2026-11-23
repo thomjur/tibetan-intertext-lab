@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 import pandas as pd
 
-from .embeddings import DEFAULT_MODEL_ID, TextEmbedder, TorchDTypeName
+from .embeddings import DEFAULT_MODEL_ID, EmbeddingBackend, TextEmbedder, TorchDTypeName, create_embedder
+from .tfidf import TfidfAnalyzer
+
+if TYPE_CHECKING:
+    from .tfidf import TfidfEmbedder
 from .normalization import normalize_text
 from .pairwise import PairMatch
 from .pairwise_run import PairwiseMetrics, PairwiseSegment, make_segments, run_pairwise_similarity_core
@@ -93,6 +97,7 @@ class TibetanResearchSDK:
         botok_cache_dir: str | Path | None = ".cache/botok/dialect_packs",
         min_syllables: int = 4,
         model_id: str = DEFAULT_MODEL_ID,
+        embedding_backend: EmbeddingBackend = "gemma",
         batch_size: int = 8,
         device: Literal["auto", "cpu", "mps", "cuda"] = "auto",
         embedding_progress: Literal["off", "batch", "sentence"] = "off",
@@ -100,12 +105,20 @@ class TibetanResearchSDK:
         device_map: str | dict[str, int | str] | None = None,
         load_in_8bit: bool = False,
         low_cpu_mem_usage: bool | None = None,
+        tfidf_analyzer: TfidfAnalyzer = "botok",
+        tfidf_ngram_min: int | None = None,
+        tfidf_ngram_max: int | None = None,
+        tfidf_min_df: int | float = 1,
+        tfidf_max_df: int | float = 1.0,
+        tfidf_max_features: int | None = None,
+        tfidf_sublinear_tf: bool = False,
     ) -> None:
         self.engine = engine
         self.source_format = source_format
         self.botok_cache_dir = botok_cache_dir
         self.min_syllables = min_syllables
         self.model_id = model_id
+        self.embedding_backend = embedding_backend
         self.batch_size = batch_size
         self.device = device
         self.embedding_progress = embedding_progress
@@ -113,12 +126,19 @@ class TibetanResearchSDK:
         self.device_map = device_map
         self.load_in_8bit = load_in_8bit
         self.low_cpu_mem_usage = low_cpu_mem_usage
+        self.tfidf_analyzer = tfidf_analyzer
+        self.tfidf_ngram_min = tfidf_ngram_min
+        self.tfidf_ngram_max = tfidf_ngram_max
+        self.tfidf_min_df = tfidf_min_df
+        self.tfidf_max_df = tfidf_max_df
+        self.tfidf_max_features = tfidf_max_features
+        self.tfidf_sublinear_tf = tfidf_sublinear_tf
         self._segmenter = resolve_segmenter(
             engine=engine,
             dialect_pack_dir=botok_cache_dir,
             min_syllables=min_syllables,
         )
-        self._embedders: dict[tuple[object, ...], TextEmbedder] = {}
+        self._embedders: dict[tuple[object, ...], TextEmbedder | TfidfEmbedder] = {}
 
     def segment_text(self, text: str, *, source_format: str | None = None) -> SegmentationView:
         source_format = source_format or self.source_format
@@ -140,6 +160,7 @@ class TibetanResearchSDK:
         sentences: list[str],
         *,
         model_id: str | None = None,
+        embedding_backend: EmbeddingBackend | None = None,
         batch_size: int | None = None,
         device: Literal["auto", "cpu", "mps", "cuda"] | None = None,
         embedding_progress: Literal["off", "batch", "sentence"] | None = None,
@@ -150,6 +171,7 @@ class TibetanResearchSDK:
         is_query: bool = False,
     ) -> EmbeddingView:
         model_id = model_id or self.model_id
+        backend = embedding_backend or self.embedding_backend
         batch_size = batch_size if batch_size is not None else self.batch_size
         device = device or self.device
         embedding_progress = embedding_progress or self.embedding_progress
@@ -159,6 +181,7 @@ class TibetanResearchSDK:
         low_cpu_mem_usage = low_cpu_mem_usage if low_cpu_mem_usage is not None else self.low_cpu_mem_usage
         embedder = self._get_embedder(
             model_id=model_id,
+            embedding_backend=backend,
             batch_size=batch_size,
             device=device,
             embedding_progress=embedding_progress,
@@ -170,10 +193,92 @@ class TibetanResearchSDK:
         encoded = embedder.encode_queries(sentences) if is_query else embedder.encode_corpus(sentences)
         return EmbeddingView(
             model_id=encoded.model_id,
-            device=device,
+            device="cpu" if backend == "tfidf" else device,
             sentences=sentences,
             embeddings=encoded.embeddings,
         )
+
+    def embed_corpus_sides(
+        self,
+        documents_a: list[list[str]],
+        documents_b: list[list[str]],
+        *,
+        model_id: str | None = None,
+        embedding_backend: EmbeddingBackend | None = None,
+        batch_size: int | None = None,
+        device: Literal["auto", "cpu", "mps", "cuda"] | None = None,
+        embedding_progress: Literal["off", "batch", "sentence"] | None = None,
+        torch_dtype: TorchDTypeName | None = None,
+        device_map: str | dict[str, int | str] | None = None,
+        load_in_8bit: bool | None = None,
+        low_cpu_mem_usage: bool | None = None,
+    ) -> tuple[list[EmbeddingView], list[EmbeddingView]]:
+        """Embed two sides of a corpus run.
+
+        For the TF-IDF backend this performs one joint fit over all sentences of
+        both sides so every document shares the same vector space. For neural
+        backends each document is encoded independently (A as query side, B as
+        corpus side).
+        """
+        backend = embedding_backend or self.embedding_backend
+        if backend == "tfidf":
+            embedder = self._get_embedder(
+                model_id=model_id or self.model_id,
+                embedding_backend="tfidf",
+                batch_size=batch_size if batch_size is not None else self.batch_size,
+                device=device or self.device,
+                embedding_progress=embedding_progress or self.embedding_progress,
+                torch_dtype=torch_dtype if torch_dtype is not None else self.torch_dtype,
+                device_map=device_map if device_map is not None else self.device_map,
+                load_in_8bit=load_in_8bit if load_in_8bit is not None else self.load_in_8bit,
+                low_cpu_mem_usage=low_cpu_mem_usage if low_cpu_mem_usage is not None else self.low_cpu_mem_usage,
+            )
+            encoded = embedder.encode_document_lists(list(documents_a) + list(documents_b))
+            split = len(documents_a)
+            views: list[EmbeddingView] = []
+            for document, result in zip(list(documents_a) + list(documents_b), encoded):
+                views.append(
+                    EmbeddingView(
+                        model_id=result.model_id,
+                        device="cpu",
+                        sentences=document,
+                        embeddings=result.embeddings,
+                    )
+                )
+            return views[:split], views[split:]
+        views_a = [
+            self.embed_sentences(
+                document,
+                model_id=model_id,
+                embedding_backend=backend,
+                batch_size=batch_size,
+                device=device,
+                embedding_progress=embedding_progress,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                load_in_8bit=load_in_8bit,
+                low_cpu_mem_usage=low_cpu_mem_usage,
+                is_query=True,
+            )
+            for document in documents_a
+        ]
+        views_b = [
+            self.embed_sentences(
+                document,
+                model_id=model_id,
+                embedding_backend=backend,
+                batch_size=batch_size,
+                device=device,
+                embedding_progress=embedding_progress,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                load_in_8bit=load_in_8bit,
+                low_cpu_mem_usage=low_cpu_mem_usage,
+                is_query=False,
+            )
+            for document in documents_b
+        ]
+        return views_a, views_b
 
     def pairwise(
         self,
@@ -221,30 +326,57 @@ class TibetanResearchSDK:
         load_in_8bit: bool | None = None,
         low_cpu_mem_usage: bool | None = None,
     ) -> PairwiseView:
-        embedding_a = self.embed_sentences(
-            sentences_a,
-            model_id=model_id,
-            batch_size=batch_size,
-            device=device,
-            embedding_progress=embedding_progress,
-            torch_dtype=torch_dtype,
-            device_map=device_map,
-            load_in_8bit=load_in_8bit,
-            low_cpu_mem_usage=low_cpu_mem_usage,
-            is_query=True,
-        )
-        embedding_b = self.embed_sentences(
-            sentences_b,
-            model_id=model_id,
-            batch_size=batch_size,
-            device=device,
-            embedding_progress=embedding_progress,
-            torch_dtype=torch_dtype,
-            device_map=device_map,
-            load_in_8bit=load_in_8bit,
-            low_cpu_mem_usage=low_cpu_mem_usage,
-            is_query=False,
-        )
+        if self.embedding_backend == "tfidf":
+            # TF-IDF needs one joint fit over both sentence lists.
+            embedder = self._get_embedder(
+                model_id=model_id or self.model_id,
+                embedding_backend="tfidf",
+                batch_size=batch_size if batch_size is not None else self.batch_size,
+                device=device or self.device,
+                embedding_progress=embedding_progress or self.embedding_progress,
+                torch_dtype=torch_dtype if torch_dtype is not None else self.torch_dtype,
+                device_map=device_map if device_map is not None else self.device_map,
+                load_in_8bit=load_in_8bit if load_in_8bit is not None else self.load_in_8bit,
+                low_cpu_mem_usage=low_cpu_mem_usage if low_cpu_mem_usage is not None else self.low_cpu_mem_usage,
+            )
+            encoded_a, encoded_b = embedder.encode_pair(sentences_a, sentences_b)
+            embedding_a = EmbeddingView(
+                model_id=encoded_a.model_id,
+                device="cpu",
+                sentences=sentences_a,
+                embeddings=encoded_a.embeddings,
+            )
+            embedding_b = EmbeddingView(
+                model_id=encoded_b.model_id,
+                device="cpu",
+                sentences=sentences_b,
+                embeddings=encoded_b.embeddings,
+            )
+        else:
+            embedding_a = self.embed_sentences(
+                sentences_a,
+                model_id=model_id,
+                batch_size=batch_size,
+                device=device,
+                embedding_progress=embedding_progress,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                load_in_8bit=load_in_8bit,
+                low_cpu_mem_usage=low_cpu_mem_usage,
+                is_query=True,
+            )
+            embedding_b = self.embed_sentences(
+                sentences_b,
+                model_id=model_id,
+                batch_size=batch_size,
+                device=device,
+                embedding_progress=embedding_progress,
+                torch_dtype=torch_dtype,
+                device_map=device_map,
+                load_in_8bit=load_in_8bit,
+                low_cpu_mem_usage=low_cpu_mem_usage,
+                is_query=False,
+            )
         result = run_pairwise_similarity_core(
             make_segments(sentences_a),
             embedding_a.embeddings,
@@ -309,6 +441,7 @@ class TibetanResearchSDK:
             "botok_cache_dir": self.botok_cache_dir,
             "min_syllables": self.min_syllables,
             "model_id": self.model_id,
+            "embedding_backend": self.embedding_backend,
             "batch_size": self.batch_size,
             "device": self.device,
             "embedding_progress": self.embedding_progress,
@@ -316,6 +449,13 @@ class TibetanResearchSDK:
             "device_map": self.device_map,
             "load_in_8bit": self.load_in_8bit,
             "low_cpu_mem_usage": self.low_cpu_mem_usage,
+            "tfidf_analyzer": self.tfidf_analyzer,
+            "tfidf_ngram_min": self.tfidf_ngram_min,
+            "tfidf_ngram_max": self.tfidf_ngram_max,
+            "tfidf_min_df": self.tfidf_min_df,
+            "tfidf_max_df": self.tfidf_max_df,
+            "tfidf_max_features": self.tfidf_max_features,
+            "tfidf_sublinear_tf": self.tfidf_sublinear_tf,
         }
         defaults.update(kwargs)
         return run_bidirectional_corpus_pairwise(dir_a, dir_b, output_dir, **defaults)
@@ -328,6 +468,7 @@ class TibetanResearchSDK:
         self,
         *,
         model_id: str,
+        embedding_backend: EmbeddingBackend | None = None,
         batch_size: int,
         device: Literal["auto", "cpu", "mps", "cuda"],
         embedding_progress: Literal["off", "batch", "sentence"],
@@ -335,30 +476,48 @@ class TibetanResearchSDK:
         device_map: str | dict[str, int | str] | None,
         load_in_8bit: bool,
         low_cpu_mem_usage: bool | None,
-    ) -> TextEmbedder:
+    ) -> TextEmbedder | TfidfEmbedder:
+        backend = embedding_backend or self.embedding_backend
         cache_key = (
+            backend,
             model_id,
             device,
             torch_dtype,
             repr(device_map),
             load_in_8bit,
             low_cpu_mem_usage,
+            self.tfidf_analyzer,
+            self.tfidf_ngram_min,
+            self.tfidf_ngram_max,
+            self.tfidf_min_df,
+            self.tfidf_max_df,
+            self.tfidf_max_features,
+            self.tfidf_sublinear_tf,
         )
         embedder = self._embedders.get(cache_key)
         if embedder is None:
-            embedder = TextEmbedder(
+            embedder = create_embedder(
+                backend,
                 model_id=model_id,
+                text_embedder_cls=TextEmbedder,
                 batch_size=batch_size,
-                normalize_embeddings=True,
                 device=device,
                 embedding_progress=embedding_progress,
                 torch_dtype=torch_dtype,
                 device_map=device_map,
                 load_in_8bit=load_in_8bit,
                 low_cpu_mem_usage=low_cpu_mem_usage,
+                botok_cache_dir=self.botok_cache_dir,
+                tfidf_analyzer=self.tfidf_analyzer,
+                tfidf_ngram_min=self.tfidf_ngram_min,
+                tfidf_ngram_max=self.tfidf_ngram_max,
+                tfidf_min_df=self.tfidf_min_df,
+                tfidf_max_df=self.tfidf_max_df,
+                tfidf_max_features=self.tfidf_max_features,
+                tfidf_sublinear_tf=self.tfidf_sublinear_tf,
             )
             self._embedders[cache_key] = embedder
-        else:
+        elif backend == "gemma":
             embedder.batch_size = batch_size
             embedder.embedding_progress = embedding_progress
         return embedder
