@@ -4,16 +4,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
 
 from .embeddings import DEFAULT_MODEL_ID, EmbeddingBackend, TextEmbedder, TorchDTypeName, create_embedder
-from .tfidf import TfidfAnalyzer
-
-if TYPE_CHECKING:
-    from .tfidf import TfidfEmbedder
+from .tfidf import TfidfAnalyzer, TfidfEmbedder
 from .normalization import normalize_text
 from .pairwise import PairMatch
 from .pairwise_run import PairwiseMetrics, PairwiseSegment, make_segments, run_pairwise_similarity_core
@@ -430,6 +427,98 @@ class TibetanResearchSDK:
             matches=_compatibility_matches(result),
             metrics=result.metrics,
         )
+
+    def tfidf_vocabulary(
+        self,
+        *,
+        top_n: int | None = None,
+        sort_by: Literal["index", "idf"] = "index",
+    ) -> list[dict[str, Any]]:
+        """Vocabulary of the fitted TF-IDF embedder as rows of {term, index, idf}.
+
+        Requires `embedding_backend="tfidf"` and a fitted embedder, i.e. call this
+        after any embed/pairwise method (the embedder is cached and reused).
+        """
+        embedder = self._tfidf_embedder()
+        terms = embedder.vocabulary_terms(with_idf=True)
+        if sort_by == "idf":
+            terms.sort(key=lambda row: row["idf"], reverse=True)
+        elif sort_by != "index":
+            raise ValueError(f"Unsupported sort_by: {sort_by}")
+        if top_n is not None:
+            terms = terms[:top_n]
+        return terms
+
+    def tfidf_vector_terms(self, view: EmbeddingView, index: int) -> dict[str, float]:
+        """Non-zero {term: tf-idf weight} entries of one segment vector in an EmbeddingView."""
+        embedder = self._tfidf_embedder()
+        self._check_tfidf_view(view)
+        self._check_view_index(view, index)
+        return embedder.vector_terms(view.embeddings[index])
+
+    def tfidf_explain_pair(
+        self,
+        view_a: EmbeddingView,
+        index_a: int,
+        view_b: EmbeddingView,
+        index_b: int,
+        *,
+        top_n: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Term-level comparison of two segment vectors (e.g. a pairwise match).
+
+        Returns one row per term that is non-zero in either vector, with the value
+        in each vector and the product (its contribution to the cosine score),
+        sorted by descending contribution.
+
+        After `pairwise_from_sentences(a, b)`, pass `sdk.embed_sentences(a)` and
+        `sdk.embed_sentences(b)` as the views: the cached embedder is already
+        fitted jointly, so no refit happens and the vectors match the pairwise run.
+        """
+        embedder = self._tfidf_embedder()
+        self._check_tfidf_view(view_a)
+        self._check_tfidf_view(view_b)
+        self._check_view_index(view_a, index_a)
+        self._check_view_index(view_b, index_b)
+        return embedder.explain_pair(
+            view_a.embeddings[index_a],
+            view_b.embeddings[index_b],
+            top_n=top_n,
+        )
+
+    def _tfidf_embedder(self) -> TfidfEmbedder:
+        if self.embedding_backend != "tfidf":
+            raise ValueError(
+                "TF-IDF inspection requires embedding_backend='tfidf' "
+                f"(got {self.embedding_backend!r})."
+            )
+        embedder = self._get_embedder(
+            model_id=self.model_id,
+            embedding_backend="tfidf",
+            batch_size=self.batch_size,
+            device=self.device,
+            embedding_progress=self.embedding_progress,
+            torch_dtype=self.torch_dtype,
+            device_map=self.device_map,
+            load_in_8bit=self.load_in_8bit,
+            low_cpu_mem_usage=self.low_cpu_mem_usage,
+        )
+        if not isinstance(embedder, TfidfEmbedder):
+            raise ValueError("Cached embedder is not a TfidfEmbedder.")
+        return embedder
+
+    @staticmethod
+    def _check_tfidf_view(view: EmbeddingView) -> None:
+        if not view.model_id.startswith("tfidf:"):
+            raise ValueError(
+                "EmbeddingView was not produced by the TF-IDF backend "
+                f"(model_id={view.model_id!r})."
+            )
+
+    @staticmethod
+    def _check_view_index(view: EmbeddingView, index: int) -> None:
+        if not 0 <= index < len(view.sentences):
+            raise IndexError(f"index {index} out of range for {len(view.sentences)} sentences")
 
     def bidirectional_corpus_pairwise(self, dir_a: str | Path, dir_b: str | Path, output_dir: str | Path, **kwargs: object):
         """Run corpus pairwise analysis both directions using this SDK's defaults."""

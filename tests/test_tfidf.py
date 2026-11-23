@@ -104,6 +104,61 @@ class TfidfEmbedderTests(unittest.TestCase):
         self.assertEqual(_SHAD_PATTERN.sub("", "\u0f0b\u0f0e\u0f14"), "")
 
 
+class TfidfInspectionTests(unittest.TestCase):
+    def test_vocabulary_terms_returns_term_index_and_idf(self) -> None:
+        embedder = _make_tfidf()
+        embedder.encode_pair(["alpha beta", "gamma"], ["delta alpha"])
+        terms = embedder.vocabulary_terms()
+        self.assertEqual({row["term"] for row in terms}, {"alpha", "beta", "gamma", "delta"})
+        self.assertEqual(sorted(row["index"] for row in terms), [0, 1, 2, 3])
+        self.assertTrue(all(row["idf"] > 0 for row in terms))
+        plain = embedder.vocabulary_terms(with_idf=False)
+        self.assertNotIn("idf", plain[0])
+
+    def test_vocabulary_terms_requires_fit(self) -> None:
+        embedder = _make_tfidf()
+        with self.assertRaises(RuntimeError):
+            embedder.vocabulary_terms()
+
+    def test_vector_terms_maps_nonzero_entries(self) -> None:
+        embedder = _make_tfidf()
+        result_a, _ = embedder.encode_pair(["alpha beta"], ["alpha gamma"])
+        terms = embedder.vector_terms(result_a.embeddings[0])
+        self.assertEqual(set(terms), {"alpha", "beta"})
+        self.assertAlmostEqual(sum(value * value for value in terms.values()), 1.0, places=5)
+        zero = np.zeros(embedder.vocabulary_size, dtype=np.float32)
+        self.assertEqual(embedder.vector_terms(zero), {})
+
+    def test_vector_terms_rejects_wrong_dimension(self) -> None:
+        embedder = _make_tfidf()
+        embedder.encode(["alpha beta"])
+        with self.assertRaises(ValueError):
+            embedder.vector_terms(np.zeros(embedder.vocabulary_size + 1, dtype=np.float32))
+
+    def test_vector_terms_requires_fit(self) -> None:
+        embedder = _make_tfidf()
+        with self.assertRaises(RuntimeError):
+            embedder.vector_terms(np.zeros(1, dtype=np.float32))
+
+    def test_explain_pair_reports_values_and_contributions(self) -> None:
+        embedder = _make_tfidf()
+        result_a, result_b = embedder.encode_pair(["alpha beta"], ["alpha gamma"])
+        rows = embedder.explain_pair(result_a.embeddings[0], result_b.embeddings[0])
+        by_term = {row["term"]: row for row in rows}
+        self.assertEqual(set(by_term), {"alpha", "beta", "gamma"})
+        self.assertAlmostEqual(
+            by_term["alpha"]["contribution"],
+            by_term["alpha"]["value_a"] * by_term["alpha"]["value_b"],
+            places=6,
+        )
+        self.assertGreater(by_term["alpha"]["contribution"], 0.0)
+        self.assertEqual(by_term["beta"]["value_b"], 0.0)
+        self.assertEqual(by_term["gamma"]["value_a"], 0.0)
+        contributions = [row["contribution"] for row in rows]
+        self.assertEqual(contributions, sorted(contributions, reverse=True))
+        self.assertEqual(len(embedder.explain_pair(result_a.embeddings[0], result_b.embeddings[0], top_n=1)), 1)
+
+
 class CreateEmbedderFactoryTests(unittest.TestCase):
     def test_tfidf_backend_returns_tfidf_embedder(self) -> None:
         with patch("tibetan_pipeline.tfidf.build_botok_tokenizer", return_value=_split_tokenizer):
@@ -332,6 +387,67 @@ class SDKTfidfTests(unittest.TestCase):
         self.assertEqual(view.embeddings.shape, (2, 3))
         self.assertEqual(view.device, "cpu")
         self.assertTrue(view.model_id.startswith("tfidf:botok"))
+
+
+class SDKTfidfInspectionTests(unittest.TestCase):
+    def _make_sdk(self, backend: str = "tfidf") -> TibetanResearchSDK:
+        with patch("tibetan_pipeline.sdk.resolve_segmenter", return_value=FakeSegmenter()):
+            return TibetanResearchSDK(embedding_backend=backend, botok_cache_dir="unused")  # type: ignore[arg-type]
+
+    def test_tfidf_vocabulary_after_pairwise(self) -> None:
+        sdk = self._make_sdk()
+        with patch("tibetan_pipeline.tfidf.build_botok_tokenizer", return_value=_split_tokenizer):
+            sdk.pairwise_from_sentences(["alpha beta", "gamma"], ["alpha beta", "delta"], top_k=2)
+            vocab = sdk.tfidf_vocabulary()
+            top_idf = sdk.tfidf_vocabulary(top_n=2, sort_by="idf")
+        self.assertEqual({row["term"] for row in vocab}, {"alpha", "beta", "gamma", "delta"})
+        self.assertEqual(len(top_idf), 2)
+        idfs = [row["idf"] for row in top_idf]
+        self.assertEqual(idfs, sorted(idfs, reverse=True))
+
+    def test_tfidf_vocabulary_rejects_other_backends(self) -> None:
+        sdk = self._make_sdk(backend="gemma")
+        with self.assertRaises(ValueError):
+            sdk.tfidf_vocabulary()
+
+    def test_tfidf_vocabulary_requires_fitted_embedder(self) -> None:
+        sdk = self._make_sdk()
+        with patch("tibetan_pipeline.tfidf.build_botok_tokenizer", return_value=_split_tokenizer):
+            with self.assertRaises(RuntimeError):
+                sdk.tfidf_vocabulary()
+
+    def test_tfidf_vector_terms_and_explain_pair_reuse_pairwise_fit(self) -> None:
+        sdk = self._make_sdk()
+        with patch("tibetan_pipeline.tfidf.build_botok_tokenizer", return_value=_split_tokenizer):
+            pair_view = sdk.pairwise_from_sentences(["alpha beta", "gamma"], ["alpha beta", "delta"], top_k=2)
+            # Cached embedder is already jointly fitted: no refit, same vector space.
+            view_a = sdk.embed_sentences(["alpha beta", "gamma"])
+            view_b = sdk.embed_sentences(["alpha beta", "delta"])
+            terms = sdk.tfidf_vector_terms(view_a, 0)
+            rows = sdk.tfidf_explain_pair(view_a, 0, view_b, 0)
+        self.assertEqual(set(terms), {"alpha", "beta"})
+        self.assertEqual(rows[0]["term"], "alpha")
+        self.assertGreater(rows[0]["contribution"], 0.0)
+        self.assertAlmostEqual(
+            sum(row["contribution"] for row in rows),
+            float(pair_view.similarity_matrix[0, 0]),
+            places=5,
+        )
+
+    def test_tfidf_explain_pair_rejects_non_tfidf_view(self) -> None:
+        sdk = self._make_sdk()
+        with patch("tibetan_pipeline.tfidf.build_botok_tokenizer", return_value=_split_tokenizer):
+            view = sdk.embed_sentences(["alpha beta"])
+        foreign = EmbeddingView(model_id="gemma/fake", device="cpu", sentences=["x"], embeddings=np.ones((1, 3), dtype=np.float32))
+        with self.assertRaises(ValueError):
+            sdk.tfidf_explain_pair(view, 0, foreign, 0)
+
+    def test_tfidf_vector_terms_rejects_out_of_range_index(self) -> None:
+        sdk = self._make_sdk()
+        with patch("tibetan_pipeline.tfidf.build_botok_tokenizer", return_value=_split_tokenizer):
+            view = sdk.embed_sentences(["alpha beta"])
+            with self.assertRaises(IndexError):
+                sdk.tfidf_vector_terms(view, 5)
 
 
 if __name__ == "__main__":

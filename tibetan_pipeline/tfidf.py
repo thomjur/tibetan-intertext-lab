@@ -204,6 +204,73 @@ class TfidfEmbedder:
             for document in document_lists
         ]
 
+    def _fitted_vectorizer(self) -> TfidfVectorizer:
+        if self._vectorizer is None:
+            raise RuntimeError(
+                "TfidfEmbedder is not fitted yet; call fit/encode/encode_pair first."
+            )
+        return self._vectorizer
+
+    def vocabulary_terms(self, *, with_idf: bool = True) -> list[dict[str, Any]]:
+        """Fitted vocabulary as rows of {term, index, idf?}, ordered by column index."""
+        vectorizer = self._fitted_vectorizer()
+        idf = vectorizer.idf_ if with_idf else None
+        terms: list[dict[str, Any]] = []
+        for term, index in sorted(vectorizer.vocabulary_.items(), key=lambda item: item[1]):
+            row: dict[str, Any] = {"term": term, "index": int(index)}
+            if idf is not None:
+                row["idf"] = float(idf[index])
+            terms.append(row)
+        return terms
+
+    def vector_terms(self, vector: np.ndarray) -> dict[str, float]:
+        """Non-zero entries of one dense vector mapped back to {term: tf-idf weight}."""
+        vectorizer = self._fitted_vectorizer()
+        row = np.asarray(vector, dtype=np.float32).ravel()
+        size = len(vectorizer.vocabulary_)
+        if row.shape[0] != size:
+            raise ValueError(
+                f"Vector has {row.shape[0]} dimensions, but the fitted vocabulary has {size} terms."
+            )
+        inverse = {index: term for term, index in vectorizer.vocabulary_.items()}
+        return {
+            inverse[index]: float(row[index])
+            for index in range(size)
+            if row[index] != 0.0
+        }
+
+    def explain_pair(
+        self,
+        vector_a: np.ndarray,
+        vector_b: np.ndarray,
+        *,
+        top_n: int | None = None,
+    ) -> list[dict[str, Any]]:
+        """Term-level comparison of two vectors from the same fitted vector space.
+
+        Returns one row per term that is non-zero in either vector, with the value
+        in each vector and the product (the term's contribution to the cosine
+        score), sorted by descending contribution.
+        """
+        terms_a = self.vector_terms(vector_a)
+        terms_b = self.vector_terms(vector_b)
+        rows: list[dict[str, Any]] = []
+        for term in sorted(set(terms_a) | set(terms_b)):
+            value_a = terms_a.get(term, 0.0)
+            value_b = terms_b.get(term, 0.0)
+            rows.append(
+                {
+                    "term": term,
+                    "value_a": value_a,
+                    "value_b": value_b,
+                    "contribution": value_a * value_b,
+                }
+            )
+        rows.sort(key=lambda row: row["contribution"], reverse=True)
+        if top_n is not None:
+            rows = rows[:top_n]
+        return rows
+
     def _build_model_id(self) -> str:
         return (
             f"tfidf:{self.analyzer}:ngram={self.ngram_range[0]}-{self.ngram_range[1]}"

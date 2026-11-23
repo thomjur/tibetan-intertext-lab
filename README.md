@@ -314,6 +314,33 @@ uv run python scripts/run_corpus_pairwise_similarity.py --dir-a corpus_a --dir-b
 In notebooks, pass `embedding_backend="tfidf"` to `TibetanResearchSDK(...)`;
 `sdk.pairwise_from_sentences(...)` then fits both sides jointly.
 
+#### Inspecting the TF-IDF vocabulary and vectors (SDK)
+
+With `embedding_backend="tfidf"` the SDK exposes the fitted vectorizer for
+inspection after any embed/pairwise call (the embedder is cached and reused, so
+no refit happens):
+
+```python
+sdk = TibetanResearchSDK(embedding_backend="tfidf")
+pair_view = sdk.pairwise_from_sentences(sents_a, sents_b)
+
+# Vocabulary with column index and IDF weight per term
+sdk.tfidf_vocabulary()                          # all terms, ordered by column index
+sdk.tfidf_vocabulary(top_n=20, sort_by="idf")   # 20 rarest/most informative terms
+
+# Word -> tf-idf weight for one segment vector
+view_a = sdk.embed_sentences(sents_a)           # same joint vector space as the pairwise run
+sdk.tfidf_vector_terms(view_a, 0)
+
+# Term-level comparison of two segment vectors (e.g. a match): value in A,
+# value in B, and product = contribution to the cosine score
+view_b = sdk.embed_sentences(sents_b)
+sdk.tfidf_explain_pair(view_a, 0, view_b, 3, top_n=10)
+```
+
+These methods raise a clear error when the backend is not TF-IDF or the embedder
+is not fitted yet.
+
 Performance notes:
 - The first embedding call in a fresh Python process still pays model load/materialization cost.
 - Hugging Face model files are cached in the standard HF cache unless you explicitly override that outside the current runtime path.
