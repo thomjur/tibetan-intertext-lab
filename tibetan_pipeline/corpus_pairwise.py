@@ -151,6 +151,7 @@ def run_corpus_pairwise_similarity(
             torch_dtype=torch_dtype,
             device_map=device_map,
             load_in_8bit=load_in_8bit,
+            load_in_4bit=load_in_4bit,
             low_cpu_mem_usage=low_cpu_mem_usage,
         )
         for doc, view in zip(docs_a, views_a):

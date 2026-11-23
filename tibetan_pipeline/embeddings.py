@@ -274,6 +274,7 @@ def create_embedder(
     torch_dtype: TorchDTypeName | None = None,
     device_map: str | dict[str, int | str] | None = None,
     load_in_8bit: bool = False,
+    load_in_4bit: bool = False,
     low_cpu_mem_usage: bool | None = None,
     botok_cache_dir: str | Path | None = ".cache/botok/dialect_packs",
     tfidf_analyzer: TfidfAnalyzer = "botok",
@@ -319,6 +320,7 @@ def create_embedder(
         torch_dtype=torch_dtype,
         device_map=device_map,
         load_in_8bit=load_in_8bit,
+        load_in_4bit=load_in_4bit,
         low_cpu_mem_usage=low_cpu_mem_usage,
     )
 

@@ -118,6 +118,19 @@ class SDKTests(unittest.TestCase):
         self.assertFalse(mock_embedder_cls.call_args_list[0].kwargs["load_in_4bit"])
         self.assertTrue(mock_embedder_cls.call_args_list[1].kwargs["load_in_4bit"])
 
+    def test_embed_corpus_sides_passes_load_in_4bit(self) -> None:
+        with patch("tibetan_pipeline.sdk.resolve_segmenter", return_value=FakeSegmenter()):
+            sdk = TibetanResearchSDK(device="cpu", model_id="fake/model")
+        with patch("tibetan_pipeline.sdk.TextEmbedder") as mock_embedder_cls:
+            mock_embedder = mock_embedder_cls.return_value
+            mock_embedder.encode_queries.return_value = EmbeddingResult("fake/model", np.ones((1, 3), dtype=np.float32))
+            mock_embedder.encode_corpus.return_value = EmbeddingResult("fake/model", np.ones((1, 3), dtype=np.float32))
+
+            sdk.embed_corpus_sides([["a"]], [["b"]], load_in_4bit=True)
+
+        self.assertTrue(mock_embedder_cls.call_args.kwargs["load_in_4bit"])
+        self.assertFalse(mock_embedder_cls.call_args.kwargs["load_in_8bit"])
+
     def test_pairwise_from_sentences_returns_ranked_dataframe(self) -> None:
         with patch("tibetan_pipeline.sdk.resolve_segmenter", return_value=FakeSegmenter()):
             sdk = TibetanResearchSDK(device="cpu", model_id="fake/model", batch_size=1)

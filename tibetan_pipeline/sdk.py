@@ -213,6 +213,7 @@ class TibetanResearchSDK:
         torch_dtype: TorchDTypeName | None = None,
         device_map: str | dict[str, int | str] | None = None,
         load_in_8bit: bool | None = None,
+        load_in_4bit: bool | None = None,
         low_cpu_mem_usage: bool | None = None,
     ) -> tuple[list[EmbeddingView], list[EmbeddingView]]:
         """Embed two sides of a corpus run.
@@ -233,6 +234,7 @@ class TibetanResearchSDK:
                 torch_dtype=torch_dtype if torch_dtype is not None else self.torch_dtype,
                 device_map=device_map if device_map is not None else self.device_map,
                 load_in_8bit=load_in_8bit if load_in_8bit is not None else self.load_in_8bit,
+                load_in_4bit=load_in_4bit if load_in_4bit is not None else self.load_in_4bit,
                 low_cpu_mem_usage=low_cpu_mem_usage if low_cpu_mem_usage is not None else self.low_cpu_mem_usage,
             )
             encoded = embedder.encode_document_lists(list(documents_a) + list(documents_b))
@@ -259,6 +261,7 @@ class TibetanResearchSDK:
                 torch_dtype=torch_dtype,
                 device_map=device_map,
                 load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit,
                 low_cpu_mem_usage=low_cpu_mem_usage,
                 is_query=True,
             )
@@ -275,6 +278,7 @@ class TibetanResearchSDK:
                 torch_dtype=torch_dtype,
                 device_map=device_map,
                 load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit,
                 low_cpu_mem_usage=low_cpu_mem_usage,
                 is_query=False,
             )
@@ -342,6 +346,7 @@ class TibetanResearchSDK:
                 torch_dtype=torch_dtype if torch_dtype is not None else self.torch_dtype,
                 device_map=device_map if device_map is not None else self.device_map,
                 load_in_8bit=load_in_8bit if load_in_8bit is not None else self.load_in_8bit,
+                load_in_4bit=load_in_4bit if load_in_4bit is not None else self.load_in_4bit,
                 low_cpu_mem_usage=low_cpu_mem_usage if low_cpu_mem_usage is not None else self.low_cpu_mem_usage,
             )
             encoded_a, encoded_b = embedder.encode_pair(sentences_a, sentences_b)
@@ -367,6 +372,7 @@ class TibetanResearchSDK:
                 torch_dtype=torch_dtype,
                 device_map=device_map,
                 load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit,
                 low_cpu_mem_usage=low_cpu_mem_usage,
                 is_query=True,
             )
@@ -379,6 +385,7 @@ class TibetanResearchSDK:
                 torch_dtype=torch_dtype,
                 device_map=device_map,
                 load_in_8bit=load_in_8bit,
+                load_in_4bit=load_in_4bit,
                 low_cpu_mem_usage=low_cpu_mem_usage,
                 is_query=False,
             )
@@ -509,6 +516,7 @@ class TibetanResearchSDK:
             torch_dtype=self.torch_dtype,
             device_map=self.device_map,
             load_in_8bit=self.load_in_8bit,
+            load_in_4bit=self.load_in_4bit,
             low_cpu_mem_usage=self.low_cpu_mem_usage,
         )
         if not isinstance(embedder, TfidfEmbedder):
@@ -573,7 +581,7 @@ class TibetanResearchSDK:
         torch_dtype: TorchDTypeName | None,
         device_map: str | dict[str, int | str] | None,
         load_in_8bit: bool,
-        load_in_4bit: bool,
+        load_in_4bit: bool | None = None,
         low_cpu_mem_usage: bool | None,
     ) -> TextEmbedder | TfidfEmbedder:
         load_in_4bit=load_in_4bit if load_in_4bit is not None else self.load_in_4bit
