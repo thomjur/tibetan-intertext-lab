@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Literal
 
 from .corpus_pairwise import run_corpus_pairwise_similarity
-from .embeddings import DEFAULT_MODEL_ID, TorchDTypeName
+from .embeddings import DEFAULT_MODEL_ID, EmbeddingBackend, TorchDTypeName
 from .reports import generate_bidirectional_synthesis_report, generate_corpus_pairwise_report
+from .tfidf import TfidfAnalyzer
 
 
 @dataclass(slots=True)
@@ -39,6 +40,7 @@ def run_bidirectional_corpus_pairwise(
     botok_cache_dir: str | Path | None = ".cache/botok/dialect_packs",
     min_syllables: int = 4,
     model_id: str = DEFAULT_MODEL_ID,
+    embedding_backend: EmbeddingBackend = "gemma",
     batch_size: int = 8,
     device: Literal["auto", "cpu", "mps", "cuda"] = "auto",
     embedding_progress: Literal["off", "batch", "sentence"] = "off",
@@ -47,6 +49,13 @@ def run_bidirectional_corpus_pairwise(
     load_in_8bit: bool = False,
     load_in_4bit: bool = False,
     low_cpu_mem_usage: bool | None = None,
+    tfidf_analyzer: TfidfAnalyzer = "botok",
+    tfidf_ngram_min: int | None = None,
+    tfidf_ngram_max: int | None = None,
+    tfidf_min_df: int | float = 1,
+    tfidf_max_df: int | float = 1.0,
+    tfidf_max_features: int | None = None,
+    tfidf_sublinear_tf: bool = False,
     top_k: int = 100,
     glob_pattern: str = "*.txt",
     limit_a: int | None = None,
@@ -78,6 +87,7 @@ def run_bidirectional_corpus_pairwise(
             botok_cache_dir=botok_cache_dir,
             min_syllables=min_syllables,
             model_id=model_id,
+            embedding_backend=embedding_backend,
             batch_size=batch_size,
             device=device,
             embedding_progress=embedding_progress,
@@ -86,6 +96,13 @@ def run_bidirectional_corpus_pairwise(
             load_in_8bit=load_in_8bit,
             load_in_4bit=load_in_4bit,
             low_cpu_mem_usage=low_cpu_mem_usage,
+            tfidf_analyzer=tfidf_analyzer,
+            tfidf_ngram_min=tfidf_ngram_min,
+            tfidf_ngram_max=tfidf_ngram_max,
+            tfidf_min_df=tfidf_min_df,
+            tfidf_max_df=tfidf_max_df,
+            tfidf_max_features=tfidf_max_features,
+            tfidf_sublinear_tf=tfidf_sublinear_tf,
             top_k=top_k,
             glob_pattern=glob_pattern,
             limit_a=limit_a,
@@ -102,6 +119,7 @@ def run_bidirectional_corpus_pairwise(
             botok_cache_dir=botok_cache_dir,
             min_syllables=min_syllables,
             model_id=model_id,
+            embedding_backend=embedding_backend,
             batch_size=batch_size,
             device=device,
             embedding_progress=embedding_progress,
@@ -110,6 +128,13 @@ def run_bidirectional_corpus_pairwise(
             load_in_8bit=load_in_8bit,
             load_in_4bit=load_in_4bit,
             low_cpu_mem_usage=low_cpu_mem_usage,
+            tfidf_analyzer=tfidf_analyzer,
+            tfidf_ngram_min=tfidf_ngram_min,
+            tfidf_ngram_max=tfidf_ngram_max,
+            tfidf_min_df=tfidf_min_df,
+            tfidf_max_df=tfidf_max_df,
+            tfidf_max_features=tfidf_max_features,
+            tfidf_sublinear_tf=tfidf_sublinear_tf,
             top_k=top_k,
             glob_pattern=glob_pattern,
             limit_a=limit_b,

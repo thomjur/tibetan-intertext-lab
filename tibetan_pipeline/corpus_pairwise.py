@@ -11,10 +11,11 @@ from typing import Literal
 
 import numpy as np
 
-from .embeddings import DEFAULT_MODEL_ID, TorchDTypeName
+from .embeddings import DEFAULT_MODEL_ID, EmbeddingBackend, TorchDTypeName
 from .pairwise import PairMatch, write_topk_csv, write_topk_jsonl
 from .pairwise_run import PairwiseSegment, TopKMode, make_segments, top_k_match_records
 from .sdk import EmbeddingView, TibetanResearchSDK
+from .tfidf import TfidfAnalyzer
 
 
 @dataclass(slots=True)
@@ -27,7 +28,7 @@ class CorpusDocument:
     sentences_csv: Path
     embeddings_npy: Path
     segments: list[PairwiseSegment]
-    embedding_view: EmbeddingView
+    embedding_view: EmbeddingView | None = None
 
 
 @dataclass(slots=True)
@@ -67,6 +68,7 @@ def run_corpus_pairwise_similarity(
     botok_cache_dir: str | Path | None = ".cache/botok/dialect_packs",
     min_syllables: int = 4,
     model_id: str = DEFAULT_MODEL_ID,
+    embedding_backend: EmbeddingBackend = "gemma",
     batch_size: int = 8,
     device: Literal["auto", "cpu", "mps", "cuda"] = "auto",
     embedding_progress: Literal["off", "batch", "sentence"] = "off",
@@ -75,6 +77,13 @@ def run_corpus_pairwise_similarity(
     load_in_8bit: bool = False,
     load_in_4bit: bool = False,
     low_cpu_mem_usage: bool | None = None,
+    tfidf_analyzer: TfidfAnalyzer = "botok",
+    tfidf_ngram_min: int | None = None,
+    tfidf_ngram_max: int | None = None,
+    tfidf_min_df: int | float = 1,
+    tfidf_max_df: int | float = 1.0,
+    tfidf_max_features: int | None = None,
+    tfidf_sublinear_tf: bool = False,
     top_k: int = 100,
     glob_pattern: str = "*.txt",
     limit_a: int | None = None,
@@ -90,6 +99,7 @@ def run_corpus_pairwise_similarity(
         botok_cache_dir=botok_cache_dir,
         min_syllables=min_syllables,
         model_id=model_id,
+        embedding_backend=embedding_backend,
         batch_size=batch_size,
         device=device,
         embedding_progress=embedding_progress,
@@ -98,26 +108,74 @@ def run_corpus_pairwise_similarity(
         load_in_8bit=load_in_8bit,
         load_in_4bit=load_in_4bit,
         low_cpu_mem_usage=low_cpu_mem_usage,
+        tfidf_analyzer=tfidf_analyzer,
+        tfidf_ngram_min=tfidf_ngram_min,
+        tfidf_ngram_max=tfidf_ngram_max,
+        tfidf_min_df=tfidf_min_df,
+        tfidf_max_df=tfidf_max_df,
+        tfidf_max_features=tfidf_max_features,
+        tfidf_sublinear_tf=tfidf_sublinear_tf,
     )
 
-    docs_a = _prepare_documents(
-        root_dir=Path(dir_a),
-        output_dir=output_dir / "documents_a",
-        side_prefix="A",
-        sdk=sdk,
-        glob_pattern=glob_pattern,
-        limit=limit_a,
-        is_query=True,
-    )
-    docs_b = _prepare_documents(
-        root_dir=Path(dir_b),
-        output_dir=output_dir / "documents_b",
-        side_prefix="B",
-        sdk=sdk,
-        glob_pattern=glob_pattern,
-        limit=limit_b,
-        is_query=False,
-    )
+    if embedding_backend == "tfidf":
+        # TF-IDF needs one joint fit over all sentences of both sides, so
+        # collect documents first and embed both sides together afterwards.
+        docs_a = _prepare_documents(
+            root_dir=Path(dir_a),
+            output_dir=output_dir / "documents_a",
+            side_prefix="A",
+            sdk=sdk,
+            glob_pattern=glob_pattern,
+            limit=limit_a,
+            is_query=True,
+            embed=False,
+        )
+        docs_b = _prepare_documents(
+            root_dir=Path(dir_b),
+            output_dir=output_dir / "documents_b",
+            side_prefix="B",
+            sdk=sdk,
+            glob_pattern=glob_pattern,
+            limit=limit_b,
+            is_query=False,
+            embed=False,
+        )
+        views_a, views_b = sdk.embed_corpus_sides(
+            [[segment.text for segment in doc.segments] for doc in docs_a],
+            [[segment.text for segment in doc.segments] for doc in docs_b],
+            model_id=model_id,
+            embedding_backend=embedding_backend,
+            batch_size=batch_size,
+            device=device,
+            embedding_progress=embedding_progress,
+            torch_dtype=torch_dtype,
+            device_map=device_map,
+            load_in_8bit=load_in_8bit,
+            low_cpu_mem_usage=low_cpu_mem_usage,
+        )
+        for doc, view in zip(docs_a, views_a):
+            _attach_embedding_view(doc, view)
+        for doc, view in zip(docs_b, views_b):
+            _attach_embedding_view(doc, view)
+    else:
+        docs_a = _prepare_documents(
+            root_dir=Path(dir_a),
+            output_dir=output_dir / "documents_a",
+            side_prefix="A",
+            sdk=sdk,
+            glob_pattern=glob_pattern,
+            limit=limit_a,
+            is_query=True,
+        )
+        docs_b = _prepare_documents(
+            root_dir=Path(dir_b),
+            output_dir=output_dir / "documents_b",
+            side_prefix="B",
+            sdk=sdk,
+            glob_pattern=glob_pattern,
+            limit=limit_b,
+            is_query=False,
+        )
 
     documents_a_csv = _write_document_index(docs_a, output_dir / "documents_a.csv")
     documents_b_csv = _write_document_index(docs_b, output_dir / "documents_b.csv")
@@ -136,6 +194,7 @@ def run_corpus_pairwise_similarity(
                 output_dir=pairs_dir / pair_id,
                 sdk=sdk,
                 top_k=top_k,
+                embedding_backend=embedding_backend,
             )
             manifest = json.loads(artifacts.manifest_json.read_text(encoding="utf-8"))
             summary_rows.append(manifest)
@@ -148,6 +207,17 @@ def run_corpus_pairwise_similarity(
         engine=engine,
         source_format=source_format,
         model_id=model_id,
+        embedding_backend=embedding_backend,
+        tfidf_config=_tfidf_config(
+            embedding_backend=embedding_backend,
+            analyzer=tfidf_analyzer,
+            ngram_min=tfidf_ngram_min,
+            ngram_max=tfidf_ngram_max,
+            min_df=tfidf_min_df,
+            max_df=tfidf_max_df,
+            max_features=tfidf_max_features,
+            sublinear_tf=tfidf_sublinear_tf,
+        ),
         device=device,
         batch_size=batch_size,
         load_in_8bit=load_in_8bit,
@@ -181,6 +251,7 @@ def _prepare_documents(
     glob_pattern: str,
     limit: int | None,
     is_query: bool,
+    embed: bool = True,
 ) -> list[CorpusDocument]:
     if not root_dir.exists():
         raise FileNotFoundError(f"Input directory does not exist: {root_dir}")
@@ -210,13 +281,16 @@ def _prepare_documents(
             sentences.append(segment_text)
             spans.append(span)
         segments = make_segments(sentences, spans=spans)
-        embedding_view = sdk.embed_sentences(sentences, is_query=is_query)
+        embedding_view: EmbeddingView | None = None
+        if embed:
+            embedding_view = sdk.embed_sentences(sentences, is_query=is_query)
         sentences_csv = _write_sentence_index_csv(
             segments,
             output_dir / f"{doc_id}_sentences.csv",
         )
         embeddings_npy = output_dir / f"{doc_id}_embeddings.npy"
-        np.save(embeddings_npy, embedding_view.embeddings.astype(np.float32, copy=False))
+        if embedding_view is not None:
+            np.save(embeddings_npy, embedding_view.embeddings.astype(np.float32, copy=False))
         documents.append(
             CorpusDocument(
                 doc_id=doc_id,
@@ -231,6 +305,12 @@ def _prepare_documents(
     return documents
 
 
+def _attach_embedding_view(document: CorpusDocument, embedding_view: EmbeddingView) -> None:
+    """Attach a precomputed embedding view and persist it as .npy."""
+    document.embedding_view = embedding_view
+    np.save(document.embeddings_npy, embedding_view.embeddings.astype(np.float32, copy=False))
+
+
 def _write_pair_artifacts(
     *,
     pair_id: str,
@@ -239,7 +319,10 @@ def _write_pair_artifacts(
     output_dir: Path,
     sdk: TibetanResearchSDK,
     top_k: int,
+    embedding_backend: EmbeddingBackend = "gemma",
 ) -> CorpusPairArtifacts:
+    if doc_a.embedding_view is None or doc_b.embedding_view is None:
+        raise ValueError("Pair artifacts require embedded documents.")
     output_dir.mkdir(parents=True, exist_ok=True)
     pairwise_view = sdk.pairwise_from_embedding_views(
         doc_a.embedding_view,
@@ -262,6 +345,8 @@ def _write_pair_artifacts(
         "doc_a_relative_path": doc_a.relative_path,
         "doc_b_id": doc_b.doc_id,
         "doc_b_relative_path": doc_b.relative_path,
+        "model_id": pairwise_view.model_id,
+        "embedding_backend": embedding_backend,
         "sentence_count_a": len(pairwise_view.segments_a),
         "sentence_count_b": len(pairwise_view.segments_b),
         "matrix_rows": int(matrix.shape[0]),
@@ -420,6 +505,8 @@ def _write_summary_csv(summary_rows: list[dict[str, object]], output_path: Path)
         "doc_a_relative_path",
         "doc_b_id",
         "doc_b_relative_path",
+        "model_id",
+        "embedding_backend",
         "sentence_count_a",
         "sentence_count_b",
         "matrix_rows",
@@ -457,6 +544,8 @@ def _write_corpus_manifest(
     engine: str,
     source_format: str,
     model_id: str,
+    embedding_backend: EmbeddingBackend,
+    tfidf_config: dict[str, object] | None,
     device: str,
     batch_size: int,
     load_in_8bit: bool,
@@ -478,6 +567,8 @@ def _write_corpus_manifest(
         "engine": engine,
         "source_format": source_format,
         "model_id": model_id,
+        "embedding_backend": embedding_backend,
+        "tfidf_config": tfidf_config,
         "device": device,
         "batch_size": batch_size,
         "load_in_8bit": load_in_8bit,
@@ -517,3 +608,29 @@ def safe_slug(value: str) -> str:
     """Return a filesystem-friendly slug."""
     slug = re.sub(r"[^A-Za-z0-9._-]+", "-", value).strip("-")
     return slug or "document"
+
+
+def _tfidf_config(
+    *,
+    embedding_backend: EmbeddingBackend,
+    analyzer: TfidfAnalyzer,
+    ngram_min: int | None,
+    ngram_max: int | None,
+    min_df: int | float,
+    max_df: int | float,
+    max_features: int | None,
+    sublinear_tf: bool,
+) -> dict[str, object] | None:
+    """Build the manifest TF-IDF config block (None for non-TF-IDF backends)."""
+    if embedding_backend != "tfidf":
+        return None
+    default_range = [1, 1] if analyzer == "botok" else [3, 5]
+    return {
+        "backend": "tfidf",
+        "analyzer": analyzer,
+        "ngram_range": [ngram_min or default_range[0], ngram_max or default_range[1]],
+        "min_df": min_df,
+        "max_df": max_df,
+        "max_features": max_features,
+        "sublinear_tf": sublinear_tf,
+    }

@@ -8,6 +8,7 @@ accelerate
 bitsandbytes>=0.50.1
 ipykernel
 sentence-transformers>=2.2.0
+scikit-learn
 torch>=2.0.0
 transformers>=4.30.0
 

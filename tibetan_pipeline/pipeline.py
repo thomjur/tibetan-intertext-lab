@@ -8,7 +8,8 @@ from pathlib import Path
 
 import numpy as np
 
-from .embeddings import DEFAULT_MODEL_ID, TextEmbedder
+from .embeddings import DEFAULT_MODEL_ID, EmbeddingBackend, TextEmbedder, create_embedder
+from .tfidf import TfidfAnalyzer
 from .io import InputRecord
 from .normalization import normalize_text
 from .segmenters import (
@@ -76,6 +77,15 @@ class TibetanPipeline:
         results: list[PipelineResult],
         output_dir: str | Path,
         model_id: str = DEFAULT_MODEL_ID,
+        embedding_backend: EmbeddingBackend = "gemma",
+        botok_cache_dir: str | Path | None = ".cache/botok/dialect_packs",
+        tfidf_analyzer: TfidfAnalyzer = "botok",
+        tfidf_ngram_min: int | None = None,
+        tfidf_ngram_max: int | None = None,
+        tfidf_min_df: int | float = 1,
+        tfidf_max_df: int | float = 1.0,
+        tfidf_max_features: int | None = None,
+        tfidf_sublinear_tf: bool = False,
     ) -> tuple[Path, Path]:
         output_dir = Path(output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -93,7 +103,19 @@ class TibetanPipeline:
                     }
                 )
 
-        embedder = TextEmbedder(model_id=model_id)
+        embedder = create_embedder(
+            embedding_backend,
+            model_id=model_id,
+            text_embedder_cls=TextEmbedder,
+            botok_cache_dir=botok_cache_dir,
+            tfidf_analyzer=tfidf_analyzer,
+            tfidf_ngram_min=tfidf_ngram_min,
+            tfidf_ngram_max=tfidf_ngram_max,
+            tfidf_min_df=tfidf_min_df,
+            tfidf_max_df=tfidf_max_df,
+            tfidf_max_features=tfidf_max_features,
+            tfidf_sublinear_tf=tfidf_sublinear_tf,
+        )
         encoded = embedder.encode(sentences)
         embeddings_path = output_dir / "embeddings.npy"
         metadata_path = output_dir / "embeddings_metadata.json"
@@ -102,6 +124,8 @@ class TibetanPipeline:
             json.dumps(
                 {
                     "model_id": encoded.model_id,
+                    "embedding_backend": embedding_backend,
+                    "embedding_config": embedder.config(),
                     "rows": metadata,
                 },
                 ensure_ascii=False,

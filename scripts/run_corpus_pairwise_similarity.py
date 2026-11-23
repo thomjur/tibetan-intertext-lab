@@ -11,6 +11,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from scripts.embedding_args import add_embedding_backend_args, embedding_backend_kwargs
 from tibetan_pipeline.corpus_pairwise import run_corpus_pairwise_similarity
 from tibetan_pipeline.embeddings import DEFAULT_MODEL_ID
 
@@ -30,6 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--botok-cache-dir", default=".cache/botok/dialect_packs")
     parser.add_argument("--min-syllables", type=int, default=4)
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID)
+    add_embedding_backend_args(parser)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "mps", "cuda"])
     parser.add_argument("--torch-dtype", choices=["auto", "float16", "bfloat16", "float32"])
@@ -82,6 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         botok_cache_dir=args.botok_cache_dir,
         min_syllables=args.min_syllables,
         model_id=args.model_id,
+        **embedding_backend_kwargs(args),
         batch_size=args.batch_size,
         device=args.device,
         embedding_progress=args.embedding_progress,

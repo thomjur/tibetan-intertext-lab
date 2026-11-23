@@ -286,6 +286,66 @@ The 8-bit and 4-bit options are mutually exclusive and require a working
 `bitsandbytes` installation. For example, a pairwise run can use 4-bit loading
 with `--device cuda --load-in-4bit`.
 
+### TF-IDF backend (`--embedding-backend tfidf`)
+
+A CPU-only lexical baseline lives in `tibetan_pipeline/tfidf.py` (`TfidfEmbedder`, selected via
+`create_embedder(backend="tfidf")` or `--embedding-backend tfidf`). It mirrors the `TextEmbedder`
+interface, so pairwise/corpus flows, top-k export, and reports work unchanged.
+
+Key differences from the neural backend:
+- TF-IDF is fitted jointly: pairwise runs fit on both texts together (`encode_pair`), and corpus
+  runs fit once over all sentences of both folders (`embed_corpus_sides`), so every side shares
+  one vector space. Never compare vectors from separately fitted TF-IDF models.
+- `--tfidf-analyzer botok` (default) tokenizes with the same botok `WordTokenizer` used for
+  segmentation (shad/tsheg stripped); `--tfidf-analyzer char` uses `char_wb` n-grams (default 3-5)
+  and needs no botok dialect packs.
+- Vectors are L2-normalized, so the existing cosine-similarity core applies directly.
+- GPU flags (`--device`, `--torch-dtype`, ...) are ignored; TF-IDF always runs on CPU.
+- Tune with `--tfidf-ngram-min/max`, `--tfidf-min-df`, `--tfidf-max-df`, `--tfidf-max-features`,
+  `--tfidf-sublinear-tf`. The effective config is stored in the run manifests
+  (`embedding_backend`, `embedding_config`/`tfidf_config`, and a descriptive `model_id` such as
+  `tfidf:botok:ngram=1-1:...`).
+
+```bash
+# Two-text pairwise with TF-IDF (botok tokens)
+uv run python scripts/run_pairwise_text_similarity.py --text-a a.txt --text-b b.txt \
+  --output-dir output/tfidf_pair --embedding-backend tfidf
+
+# Corpus pairwise with TF-IDF (one joint fit over both folders)
+uv run python scripts/run_corpus_pairwise_similarity.py --dir-a corpus_a --dir-b corpus_b \
+  --output-dir output/tfidf_corpus --embedding-backend tfidf --tfidf-min-df 2
+```
+
+In notebooks, pass `embedding_backend="tfidf"` to `TibetanResearchSDK(...)`;
+`sdk.pairwise_from_sentences(...)` then fits both sides jointly.
+
+#### Inspecting the TF-IDF vocabulary and vectors (SDK)
+
+With `embedding_backend="tfidf"` the SDK exposes the fitted vectorizer for
+inspection after any embed/pairwise call (the embedder is cached and reused, so
+no refit happens):
+
+```python
+sdk = TibetanResearchSDK(embedding_backend="tfidf")
+pair_view = sdk.pairwise_from_sentences(sents_a, sents_b)
+
+# Vocabulary with column index and IDF weight per term
+sdk.tfidf_vocabulary()                          # all terms, ordered by column index
+sdk.tfidf_vocabulary(top_n=20, sort_by="idf")   # 20 rarest/most informative terms
+
+# Word -> tf-idf weight for one segment vector
+view_a = sdk.embed_sentences(sents_a)           # same joint vector space as the pairwise run
+sdk.tfidf_vector_terms(view_a, 0)
+
+# Term-level comparison of two segment vectors (e.g. a match): value in A,
+# value in B, and product = contribution to the cosine score
+view_b = sdk.embed_sentences(sents_b)
+sdk.tfidf_explain_pair(view_a, 0, view_b, 3, top_n=10)
+```
+
+These methods raise a clear error when the backend is not TF-IDF or the embedder
+is not fitted yet.
+
 Performance notes:
 - The first embedding call in a fresh Python process still pays model load/materialization cost.
 - Hugging Face model files are cached in the standard HF cache unless you explicitly override that outside the current runtime path.
