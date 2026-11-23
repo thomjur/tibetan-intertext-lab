@@ -228,3 +228,6 @@ tasks/lessons.md
 # Local/cloud-run analysis notes may include account-specific details.
 docs/analysis/
 docs/ops/
+
+# MISC
+*.png
